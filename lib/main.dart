@@ -1,5 +1,6 @@
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 
 import 'firebase_options.dart';
 import 'screens/sos_home_screen.dart';
@@ -22,12 +23,15 @@ class SosGuardApp extends StatelessWidget {
       title: 'SafeGuard SOS',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
-        scaffoldBackgroundColor: const Color(0xFF0B1020),
+        useMaterial3: true,
+        scaffoldBackgroundColor: const Color(0xFF08111F),
         colorScheme: ColorScheme.fromSeed(
           seedColor: Colors.red,
           brightness: Brightness.dark,
         ),
-        fontFamily: 'Poppins',
+        textTheme: GoogleFonts.poppinsTextTheme(
+          ThemeData(brightness: Brightness.dark).textTheme,
+        ),
       ),
       home: const SosHomeScreen(),
     );

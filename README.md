@@ -1,57 +1,28 @@
-# SOS Guard App
+name: sos_guard
+description: Premium SOS emergency Flutter app with Firebase
+publish_to: 'none'
+version: 1.0.0+1
 
-A premium emergency SOS app built with Flutter and Firebase.
+environment:
+  sdk: '>=3.3.0 <4.0.0'
 
-## Features
-- Animated SOS emergency button
-- Quick emergency call shortcuts
-- Firebase Firestore SOS logging
-- Live GPS location fetch
-- Emergency contact messaging
-- Premium dark UI design
+dependencies:
+  flutter:
+    sdk: flutter
 
-## Tech Stack
-- Flutter
-- Firebase Authentication
-- Cloud Firestore
-- Geolocator
-- URL launcher
-- Permission Handler
+  firebase_core: ^3.4.1
+  firebase_auth: ^5.2.0
+  cloud_firestore: ^5.7.0
+  geolocator: ^13.0.0
+  permission_handler: ^11.3.0
+  url_launcher: ^6.3.0
+  google_fonts: ^6.2.1
+  cupertino_icons: ^1.0.8
 
-## Setup
-1. Install Flutter SDK
-2. Open the project folder
-3. Run:
-   ```bash
-   flutter pub get
-   flutterfire configure
-   flutter run
-   ```
-4. Firebase setup will generate `lib/firebase_options.dart` automatically.
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
 
-## Firebase note
-This repo includes placeholder Firebase options so the project can compile before you run `flutterfire configure`.
-
-## Run locally
-```bash
-flutter pub get
-flutter run
-```
-
-## Project structure
-```text
-lib/
-  main.dart
-  firebase_options.dart
-  screens/
-    sos_home_screen.dart
-```
-
-## Emergency actions included
-- Police call: 112
-- Hospital call: 108
-- SOS message to emergency contacts
-- Live location captured from device GPS
-
-## Security note
-Firestore rules should be restricted in production. Replace the sample rules with authenticated access rules before deployment.
+flutter:
+  uses-material-design: true

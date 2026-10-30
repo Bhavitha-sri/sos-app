@@ -1,27 +1,631 @@
-name: sos_guard
-description: Premium SOS emergency Flutter app with Firebase
-publish_to: 'none'
-version: 1.0.0+1
+import 'dart:async';
 
-environment:
-  sdk: '>=3.3.0 <4.0.0'
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
+import 'package:google_fonts/google_fonts.dart';
+import 'package:permission_handler/permission_handler.dart';
+import 'package:url_launcher/url_launcher.dart';
 
-dependencies:
-  flutter:
-    sdk: flutter
+class SosHomeScreen extends StatefulWidget {
+  const SosHomeScreen({super.key});
 
-  firebase_core: ^3.4.1
-  firebase_auth: ^5.2.0
-  cloud_firestore: ^5.7.0
-  geolocator: ^13.0.0
-  permission_handler: ^11.3.0
-  url_launcher: ^6.3.0
-  cupertino_icons: ^1.0.8
+  @override
+  State<SosHomeScreen> createState() => _SosHomeScreenState();
+}
 
-dev_dependencies:
-  flutter_test:
-    sdk: flutter
-  flutter_lints: ^5.0.0
+class _SosHomeScreenState extends State<SosHomeScreen>
+    with TickerProviderStateMixin {
+  bool _isSosActive = false;
+  String _locationText = 'Fetching live location...';
+  final String _userName = 'Riya';
+  late final AnimationController _pulseController;
 
-flutter:
-  uses-material-design: true
+  final List<Map<String, String>> _contacts = [
+    {'name': 'Mom', 'phone': '+919999999999'},
+    {'name': 'Brother', 'phone': '+918888888888'},
+    {'name': 'Best Friend', 'phone': '+917777777777'},
+  ];
+
+  final List<Map<String, dynamic>> _safetyTips = [
+    {
+      'icon': Icons.security_rounded,
+      'title': 'Stay visible',
+      'subtitle': 'Keep your location active and your contacts informed.',
+    },
+    {
+      'icon': Icons.flash_on_rounded,
+      'title': 'Quick actions',
+      'subtitle': 'Use the emergency pane to reach help instantly.',
+    },
+    {
+      'icon': Icons.favorite_rounded,
+      'title': 'Stay calm',
+      'subtitle': 'Your emergency alert is already sending help.',
+    },
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    _pulseController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1000),
+    )..repeat(reverse: true);
+    _initializeApp();
+  }
+
+  @override
+  void dispose() {
+    _pulseController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _initializeApp() async {
+    try {
+      if (FirebaseAuth.instance.currentUser == null) {
+        await FirebaseAuth.instance.signInAnonymously();
+      }
+      await _requestLocationPermission();
+      await _updateLocation();
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _locationText = 'Location unavailable';
+        });
+      }
+    }
+  }
+
+  Future<void> _requestLocationPermission() async {
+    final status = await Permission.location.request();
+    if (status.isDenied || status.isPermanentlyDenied) {
+      throw Exception('Location permission denied');
+    }
+  }
+
+  Future<void> _updateLocation() async {
+    final position = await Geolocator.getCurrentPosition(
+      desiredAccuracy: LocationAccuracy.high,
+    );
+
+    if (!mounted) return;
+
+    setState(() {
+      _locationText =
+          '${position.latitude.toStringAsFixed(5)}, ${position.longitude.toStringAsFixed(5)}';
+    });
+  }
+
+  Future<void> _triggerSOS() async {
+    setState(() {
+      _isSosActive = true;
+    });
+
+    try {
+      await SosService.sendSOS(_userName, _locationText);
+      _showSnack('SOS alert sent successfully');
+      await _callNumber('112');
+    } catch (_) {
+      _showSnack('SOS failed. Please try again.');
+    } finally {
+      Future.delayed(const Duration(seconds: 2), () {
+        if (mounted) {
+          setState(() {
+            _isSosActive = false;
+          });
+        }
+      });
+    }
+  }
+
+  Future<void> _callNumber(String number) async {
+    final uri = Uri.parse('tel:$number');
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri);
+    }
+  }
+
+  Future<void> _sendSMS(String phone) async {
+    final message = Uri.encodeComponent(
+      'Emergency! I need help. My location: $_locationText',
+    );
+    final uri = Uri.parse('sms:$phone?body=$message');
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri);
+    }
+  }
+
+  Future<void> _openMap() async {
+    final latLng = _locationText.split(',');
+    if (latLng.length == 2) {
+      final latitude = latLng[0].trim();
+      final longitude = latLng[1].trim();
+      final uri = Uri.parse('geo:0,0?q=$latitude,$longitude');
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri);
+      }
+    }
+  }
+
+  void _showSnack(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(14),
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            colors: [
+              Color(0xFF071325),
+              Color(0xFF0C1830),
+              Color(0xFF111F3C),
+            ],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+        ),
+        child: SafeArea(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(18, 18, 18, 32),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _buildHeader(),
+                const SizedBox(height: 18),
+                _buildStatusCards(),
+                const SizedBox(height: 22),
+                Center(
+                  child: AnimatedBuilder(
+                    animation: _pulseController,
+                    builder: (_, child) {
+                      final pulse = 0.94 + (_pulseController.value * 0.12);
+                      return Transform.scale(
+                        scale: _isSosActive ? 1.0 : pulse,
+                        child: child,
+                      );
+                    },
+                    child: GestureDetector(
+                      onTap: _triggerSOS,
+                      child: Container(
+                        width: 235,
+                        height: 235,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.red.withOpacity(0.55),
+                              blurRadius: 42,
+                              spreadRadius: 10,
+                            ),
+                          ],
+                        ),
+                        child: Container(
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            gradient: const LinearGradient(
+                              colors: [
+                                Color(0xFFFF4D4D),
+                                Color(0xFFCB1D1D),
+                              ],
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                            ),
+                            border: Border.all(color: Colors.white24, width: 6),
+                          ),
+                          child: const Center(
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(
+                                  Icons.warning_amber_rounded,
+                                  size: 54,
+                                  color: Colors.white,
+                                ),
+                                SizedBox(height: 8),
+                                Text(
+                                  'SOS',
+                                  style: TextStyle(
+                                    fontSize: 38,
+                                    fontWeight: FontWeight.w900,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 24),
+                _buildQuickActions(),
+                const SizedBox(height: 20),
+                _buildLocationCard(),
+                const SizedBox(height: 20),
+                const Text(
+                  'Trusted contacts',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                ..._contacts.map((contact) => _buildContactCard(contact)).toList(),
+                const SizedBox(height: 22),
+                const Text(
+                  'Safety tips',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                ..._safetyTips.map((tip) => _buildTipCard(tip)).toList(),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildHeader() {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'SafeGuard',
+              style: GoogleFonts.poppins(
+                color: Colors.white,
+                fontSize: 28,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            Text(
+              'Emergency assistance',
+              style: GoogleFonts.poppins(
+                color: Colors.white70,
+                fontSize: 13,
+              ),
+            ),
+          ],
+        ),
+        Container(
+          width: 42,
+          height: 42,
+          decoration: BoxDecoration(
+            color: Colors.white10,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: Colors.white12),
+          ),
+          child: const Icon(Icons.notifications_none_rounded, color: Colors.white),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildStatusCards() {
+    return Row(
+      children: [
+        Expanded(
+          child: Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.white10,
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(color: Colors.white12),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Status',
+                  style: GoogleFonts.poppins(
+                    color: Colors.white60,
+                    fontSize: 12,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  'Protected',
+                  style: GoogleFonts.poppins(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 20,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: const Color(0xFF1D2A51),
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(color: Colors.lightBlue.withOpacity(0.25)),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Live',
+                  style: GoogleFonts.poppins(
+                    color: Colors.lightBlue[100],
+                    fontSize: 12,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  'Tracking',
+                  style: GoogleFonts.poppins(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 20,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildQuickActions() {
+    return Row(
+      children: [
+        Expanded(
+          child: _actionTile(
+            title: 'Police',
+            subtitle: '112',
+            icon: Icons.local_police_rounded,
+            color: const Color(0xFF3B82F6),
+            onTap: () => _callNumber('112'),
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: _actionTile(
+            title: 'Ambulance',
+            subtitle: '108',
+            icon: Icons.local_hospital_rounded,
+            color: const Color(0xFF10B981),
+            onTap: () => _callNumber('108'),
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: _actionTile(
+            title: 'Map',
+            subtitle: 'Locate',
+            icon: Icons.map_rounded,
+            color: const Color(0xFFF59E0B),
+            onTap: _openMap,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildLocationCard() {
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: Colors.white10,
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: Colors.white12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.location_on_rounded, color: Colors.redAccent),
+              const SizedBox(width: 8),
+              Text(
+                'Live location',
+                style: GoogleFonts.poppins(
+                  color: Colors.white,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Text(
+            _locationText,
+            style: GoogleFonts.poppins(
+              color: Colors.white70,
+              fontSize: 15,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildContactCard(Map<String, String> contact) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white10,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: Colors.white12),
+      ),
+      child: Row(
+        children: [
+          CircleAvatar(
+            radius: 22,
+            backgroundColor: Colors.red.withOpacity(0.18),
+            child: Text(
+              contact['name']![0],
+              style: GoogleFonts.poppins(
+                color: Colors.white,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  contact['name']!,
+                  style: GoogleFonts.poppins(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                Text(
+                  contact['phone']!,
+                  style: GoogleFonts.poppins(
+                    color: Colors.white70,
+                    fontSize: 12,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          IconButton(
+            onPressed: () => _callNumber(contact['phone']!.replaceAll(RegExp(r'[^0-9]'), '')),
+            icon: const Icon(Icons.call_rounded, color: Colors.greenAccent),
+          ),
+          IconButton(
+            onPressed: () => _sendSMS(contact['phone']!),
+            icon: const Icon(Icons.message_rounded, color: Colors.white),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTipCard(Map<String, dynamic> tip) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white10,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: Colors.white12),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 42,
+            height: 42,
+            decoration: BoxDecoration(
+              color: Colors.red.withOpacity(0.12),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(tip['icon'], color: Colors.redAccent),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  tip['title'],
+                  style: GoogleFonts.poppins(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                Text(
+                  tip['subtitle'],
+                  style: GoogleFonts.poppins(
+                    color: Colors.white70,
+                    fontSize: 12,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _actionTile({
+    required String title,
+    required String subtitle,
+    required IconData icon,
+    required Color color,
+    required VoidCallback onTap,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: color.withOpacity(0.13),
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: color.withOpacity(0.25)),
+        ),
+        child: Column(
+          children: [
+            Icon(icon, color: Colors.white, size: 26),
+            const SizedBox(height: 8),
+            Text(
+              title,
+              style: GoogleFonts.poppins(
+                color: Colors.white,
+                fontWeight: FontWeight.w700,
+                fontSize: 13,
+              ),
+            ),
+            Text(
+              subtitle,
+              style: GoogleFonts.poppins(
+                color: Colors.white70,
+                fontSize: 11,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class SosService {
+  static final FirebaseFirestore _db = FirebaseFirestore.instance;
+
+  static Future<void> sendSOS(String userName, String location) async {
+    final user = FirebaseAuth.instance.currentUser;
+    final uid = user?.uid ??
+        (await FirebaseAuth.instance.signInAnonymously()).user!.uid;
+
+    await _db.collection('sos_requests').add({
+      'userId': uid,
+      'name': userName,
+      'location': location,
+      'createdAt': FieldValue.serverTimestamp(),
+      'status': 'active',
+    });
+  }
+}
